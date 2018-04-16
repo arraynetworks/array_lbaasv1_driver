@@ -16,18 +16,18 @@
    limitations under the License.
    -->
 
-APV Driver for OpenStack LBaaSv2
+Array load balancer Driver for OpenStack LBaaSv1
 ===============================
 
 Introduction
 ------------
 
-The APV Driver for OpenStack LBaaSv2 is an OpenStack Neutron LBaaS service provider driver.
+The  Driver for OpenStack LBaaSv1 is an OpenStack Neutron LBaaS service provider driver.
 
 Compatibility
 -------------
 
-The APV Driver for OpenStack LBaaSv2 is compatible with OpenStack releases from Liberty forward.
+The Driver for OpenStack LBaaSv1 is compatible with OpenStack releases from Kilo forward.
 
 
 Copyright

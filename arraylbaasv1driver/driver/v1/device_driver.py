@@ -95,7 +95,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             raise SystemExit(msg)
 
     def create_vip(self, context, vip):
-        LOG.debug("Create a vip on Array apv device")
+        LOG.debug("Create a vip on Array ADC device")
         LOG.debug("vip = %s",vip)
 
         argu = {}

@@ -10,9 +10,9 @@ ARRAY_MAPPING_AVX = '/usr/share/arraylbaasdriver/mapping_avx.json'
 
 class PostInstallCommand(install):
     def run(self):
+        install.run(self)
         os.chmod(ARRAY_MAPPING_APV, 0777)
         os.chmod(ARRAY_MAPPING_AVX, 0777)
-        install.run(self)
 
 setup(
     name = "array-lbaasv1-driver",

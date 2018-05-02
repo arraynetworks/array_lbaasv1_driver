@@ -404,7 +404,6 @@ class ArrayAVXAPIDriver(object):
             self.run_cli_extend(base_rest_url, cmd_avx_clear_cluster_config)
 
 
-
     def config_ha(self, va_name, vlan_tag, vip_address):
         """ set the HA configuration when delete_vip """
 

@@ -17,6 +17,7 @@ import logging
 from arraylbaasv1driver.driver.v1.exceptions import ArrayADCException
 from arraylbaasv1driver.driver.v1.adc_map import service_group_lb_method
 from arraylbaasv1driver.driver.v1.adc_cache import LogicalAPVCache
+from arraylbaasv1driver.driver.v1.adc_device import ADCDevice
 
 LOG = logging.getLogger(__name__)
 
@@ -402,15 +403,14 @@ class ArrayAPVAPIDriver(object):
         if vlan_tag:
             interface_name = "vlan." + vlan_tag
 
+        cmd_apv_disable_cluster = ADCDevice.cluster_disable(interface_name)
+        cmd_apv_clear_cluster_config = ADCDevice.cluster_clear_virtual_interface(interface_name)
         for base_rest_url in self.base_rest_urls:
             # disable the virtual cluster
-            cmd_disable_cluster = "cluster virtual on 100 %s" % (interface_name)
-            self.run_cli_extend(base_rest_url, cmd_disable_cluster)
+            self.run_cli_extend(base_rest_url, cmd_apv_disable_cluster)
 
             # clear the configuration of this virtual ifname
-            cmd_clear_cluster_ifname = "cluster virtual ifname %s 100" % interface_name
-            self.run_cli_extend(base_rest_url, cmd_clear_cluster_ifname)
-
+            self.run_cli_extend(base_rest_url, cmd_apv_clear_cluster_config)
 
 
     def config_ha(self, vlan_tag, vip_address):

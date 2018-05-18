@@ -57,8 +57,8 @@ OPTS = [
     ),
     cfg.StrOpt(
         'array_device_driver',
-        default=('arraylbaasv1driver.driver.v1.avx_driver.'
-                 'ArrayAVXAPIDriver'),
+        default=('arraylbaasv1driver.driver.v1.apv_driver.'
+                 'ArrayAPVAPIDriver'),
         help=('The driver used to provision ADC product')
     )
 ]

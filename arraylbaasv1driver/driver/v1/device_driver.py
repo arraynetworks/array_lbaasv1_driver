@@ -29,7 +29,6 @@ from neutron_lbaas.db.loadbalancer import loadbalancer_db
 from neutron_lbaas.services.loadbalancer.drivers import abstract_driver
 
 from arraylbaasv1driver.driver.v1 import db
-#from arraylbaasv1driver.driver.v1 import apv_driver
 
 LOG = logging.getLogger(__name__)
 DRIVER_NAME = 'ArrayAPV'
@@ -101,6 +100,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu = {}
         sp_type = None
         ck_name = None
+        vip_port_mac = None
 
         port_id = vip['port_id']
         vlan_tag = db.get_vlan_id_by_port_cmcc(context, port_id)
@@ -108,6 +108,10 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             LOG.debug("Cann't get the vlan_tag by port_id(%s)", port_id)
         else:
             LOG.debug("Got the vlan_tag(%s) by port_id(%s)", vlan_tag, port_id)
+            vip_port = self.plugin._core_plugin._get_port(context, port_id)
+            LOG.debug("Got the vip_port(%s)" % vip_port)
+            vip_port_mac = vip_port['mac_address']
+
         if vip['session_persistence']:
             sp_type = vip['session_persistence']['type']
             ck_name = vip['session_persistence']['cookie_name']
@@ -123,9 +127,10 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
 
         argu['tenant_id'] = tenant_id
         argu['pool_id'] = vip['pool_id']
-        argu['vlan_tag'] = vlan_tag
+        argu['vlan_tag'] = str(vlan_tag)
         argu['vip_id'] = vip['id']
         argu['vip_address'] = vip['address']
+        argu['vip_port_mac'] = vip_port_mac
         argu['netmask'] = str(member_network.netmask)
         argu['protocol'] = vip['protocol']
         argu['protocol_port'] = vip['protocol_port']
@@ -193,7 +198,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
 
         argu['tenant_id'] = vip['tenant_id']
         argu['lb_algorithm'] = pool.get('lb_method', None)
-        argu['vlan_tag'] = vlan_tag
+        argu['vlan_tag'] = str(vlan_tag)
         argu['vip_id'] = vip['id']
         argu['vip_address'] = vip['address']
         argu['protocol'] = vip['protocol']

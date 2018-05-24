@@ -50,7 +50,8 @@ class ArrayAPVAPIDriver(object):
                          argu['vlan_tag'],
                          argu['vip_address'],
                          argu['netmask'],
-                         argu['interface_mapping']
+                         argu['interface_mapping'],
+                         argu['vip_port_mac']
                         )
 
         # create vs
@@ -102,11 +103,18 @@ class ArrayAPVAPIDriver(object):
                     vlan_tag,
                     vip_address,
                     netmask,
-                    interface_mapping
+                    interface_mapping,
+                    vip_port_mac
                    ):
         """ create vip"""
 
         interface_name = self.in_interface
+
+        # update the mac
+        if vip_port_mac:
+            cmd_config_mac = "interface mac %s %s" % (interface_name, vip_port_mac)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_config_mac)
 
         # create vlan
         if vlan_tag:
@@ -336,50 +344,29 @@ class ArrayAPVAPIDriver(object):
         if not argu:
             LOG.error("In delete_member, it should not pass the None.")
 
-        hm_type = argu['hm_type']
-        if hm_type == 'PING':
-            hm_type = 'ICMP'
-        if hm_type == 'HTTP' or hm_type == 'HTTPS':
-            payload = {
-                "hc_name": argu['hm_id'],
-                "type": argu['hm_type'],
-                "interval": argu['hm_delay'],
-                "hc_up": argu['hm_max_retries'],
-                "hc_down": argu['hm_max_retries'],
-                "timeout": argu['hm_timeout'],
-                "http_method": argu['hm_http_method'],
-                "url": argu['hm_url'],
-                'expected_codes': argu['hm_expected_codes']
-            }
-        else:
-            payload = {
-                "hc_name": argu['hm_id'],
-                "type": argu['hm_type'],
-                "interval": argu['hm_delay'],
-                "hc_up": argu['hm_max_retries'],
-                "hc_down": argu['hm_max_retries'],
-                "timeout": argu['hm_timeout']
-            }
-        for base_rest_url in self.base_rest_urls:
-            url = base_rest_url + '/loadbalancing/slb/healthcheck/GroupHealthCheck'
-            LOG.debug("create_health_monitor URL: --%s--", url)
-            LOG.debug("create_health_monitor payload: --%s--", payload)
-            r = requests.post(url, data=json.dumps(payload), auth=self.get_auth(),
-                verify=False)
-            if r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+        cmd_apv_create_hm = ADCDevice.create_health_monitor(
+                                                           argu['hm_id'],
+                                                           argu['hm_type'],
+                                                           argu['hm_delay'],
+                                                           argu['hm_max_retries'],
+                                                           argu['hm_timeout'],
+                                                           argu['hm_http_method'],
+                                                           argu['hm_url'],
+                                                           argu['hm_expected_codes']
+                                                           )
 
-        cmd_associate_hc_with_group = "slb group health " + argu['pool_id'] + " " + argu['hm_id']
+        cmd_apv_attach_hm = ADCDevice.attach_hm_to_group(argu['pool_id'], argu['hm_id'])
+
         for base_rest_url in self.base_rest_urls:
-            self.run_cli_extend(base_rest_url, cmd_associate_hc_with_group)
+            self.run_cli_extend(base_rest_url, cmd_apv_create_hm)
+            self.run_cli_extend(base_rest_url, cmd_apv_attach_hm)
 
     def delete_health_monitor(self, argu):
-        cmd_disassociate_hc_with_group = "no slb group health " + argu['pool_id'] + " " + argu['hm_id']
-        cmd_delete_hc = "no slb health  " + argu['hm_id']
+        cmd_apv_detach_hm = ADCDevice.detach_hm_to_group(argu['pool_id'], argu['hm_id'])
+        cmd_apv_no_hm = ADCDevice.no_health_monitor(argu['hm_id'])
         for base_rest_url in self.base_rest_urls:
-            self.run_cli_extend(base_rest_url, cmd_disassociate_hc_with_group)
-            self.run_cli_extend(base_rest_url, cmd_delete_hc)
+            self.run_cli_extend(base_rest_url, cmd_apv_detach_hm)
+            self.run_cli_extend(base_rest_url, cmd_apv_no_hm)
 
 
     def run_cli_extend(self, base_rest_url, cmd):

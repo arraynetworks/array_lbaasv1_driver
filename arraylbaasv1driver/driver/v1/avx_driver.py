@@ -66,7 +66,8 @@ class ArrayAVXAPIDriver(object):
                          argu['vlan_tag'],
                          argu['vip_address'],
                          argu['netmask'],
-                         argu['interface_mapping']
+                         argu['interface_mapping'],
+                         argu['vip_port_mac']
                         )
 
         # create vs
@@ -134,11 +135,19 @@ class ArrayAVXAPIDriver(object):
                     vlan_tag,
                     vip_address,
                     netmask,
-                    interface_mapping
+                    interface_mapping,
+                    vip_port_mac
                    ):
         """ create vip"""
 
         interface_name = self.in_interface
+
+        # update the mac
+        if vip_port_mac:
+            cmd_apv_config_mac = "interface mac %s %s" % (interface_name, vip_port_mac)
+            cmd_avx_config_mac = "va run %s \"%s\"" % (va_name, cmd_apv_config_mac)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_avx_config_mac)
 
         # create vlan
         if vlan_tag:

@@ -56,8 +56,8 @@ OPTS = [
     ),
     cfg.StrOpt(
         'array_device_driver',
-        default=('arraylbaasv1driver.driver.v1.apv_driver.'
-                 'ArrayAPVAPIDriver'),
+        default=('arraylbaasv1driver.driver.v1.avx_driver.'
+                 'ArrayAVXAPIDriver'),
         help=('The driver used to provision ADC product')
     )
 ]
@@ -124,6 +124,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         subnet_id = vip['subnet_id']
         subnet = self.plugin._core_plugin.get_subnet(context, subnet_id)
         member_network = netaddr.IPNetwork(subnet['cidr'])
+        gateway_ip = subnet['gateway_ip']
 
         argu['tenant_id'] = tenant_id
         argu['pool_id'] = vip['pool_id']
@@ -132,6 +133,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['vip_address'] = vip['address']
         argu['vip_port_mac'] = vip_port_mac
         argu['netmask'] = str(member_network.netmask)
+        argu['gateway_ip'] = gateway_ip
         argu['protocol'] = vip['protocol']
         argu['protocol_port'] = vip['protocol_port']
         argu['connection_limit'] = vip['connection_limit']
@@ -200,6 +202,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['lb_algorithm'] = pool.get('lb_method', None)
         argu['vlan_tag'] = str(vlan_tag)
         argu['vip_id'] = vip['id']
+        argu['pool_id'] = vip['pool_id']
         argu['vip_address'] = vip['address']
         argu['protocol'] = vip['protocol']
         argu['session_persistence_type'] = sp_type
@@ -297,6 +300,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['tenant_id'] = member['tenant_id']
         argu['protocol'] = pool.get('protocol', None)
         argu['member_id'] = member['id']
+        argu['pool_id'] = member['pool_id']
 
         self.client.delete_member(argu)
         self.plugin._delete_db_member(context, member['id'])

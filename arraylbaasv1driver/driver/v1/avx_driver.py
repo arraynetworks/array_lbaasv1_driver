@@ -42,14 +42,14 @@ class ArrayAVXAPIDriver(object):
             msg = "No argument, raise it"
             raise ArrayADCException(msg)
 
-        tenant_id = argu.get('tenant_id', None)
-        if not tenant_id:
-            msg = "No tenant_id in argument, raise it"
+        pool_id = argu.get('pool_id', None)
+        if not pool_id:
+            msg = "No pool_id in argument, raise it"
             raise ArrayADCException(msg)
 
-        va_name = self.cache.get_va_by_tenant(tenant_id)
+        va_name = self.cache.get_va_by_pool(pool_id)
         if not va_name:
-            msg = "Cannot get the vAPV by tenant_id(%s)" % tenant_id
+            msg = "Cannot get the vAPV by pool_id(%s)" % pool_id
             raise ArrayADCException(msg)
         return va_name
 
@@ -67,7 +67,8 @@ class ArrayAVXAPIDriver(object):
                          argu['vip_address'],
                          argu['netmask'],
                          argu['interface_mapping'],
-                         argu['vip_port_mac']
+                         argu['vip_port_mac'],
+                         argu['gateway_ip']
                         )
 
         # create vs
@@ -130,13 +131,14 @@ class ArrayAVXAPIDriver(object):
 
     def _create_vip(self,
                     va_name,
-                    tenant_id,
+                    pool_id,
                     vip_id,
                     vlan_tag,
                     vip_address,
                     netmask,
                     interface_mapping,
-                    vip_port_mac
+                    vip_port_mac,
+                    gateway_ip
                    ):
         """ create vip"""
 
@@ -150,7 +152,7 @@ class ArrayAVXAPIDriver(object):
                 self.run_cli_extend(base_rest_url, cmd_avx_config_mac)
 
         # create vlan
-        if vlan_tag:
+        if vlan_tag != 'None':
             interface_name = "vlan." + vlan_tag
             cmd_apv_config_vlan = ADCDevice.vlan_device(
                                                         self.in_interface,
@@ -165,44 +167,55 @@ class ArrayAVXAPIDriver(object):
         if len(self.hostnames) == 1:
             LOG.debug("Configure the vip address into interface")
             cmd_apv_config_ip = ADCDevice.configure_ip(interface_name, vip_address, netmask)
+            cmd_apv_config_route = ADCDevice.configure_route(gateway_ip)
 
             cmd_avx_config_ip = "va run %s \"%s\"" % (va_name, cmd_apv_config_ip)
+            cmd_avx_config_route = "va run %s \"%s\"" % (va_name, cmd_apv_config_route)
             for base_rest_url in self.base_rest_urls:
                 self.run_cli_extend(base_rest_url, cmd_avx_config_ip)
+                self.run_cli_extend(base_rest_url, cmd_avx_config_route)
         else:
             for host in self.hostnames:
                 iface = interface_mapping[host]
                 ip = iface['address']
 
                 cmd_apv_config_ip = ADCDevice.configure_ip(interface_name, ip, netmask)
+                cmd_apv_config_route = ADCDevice.configure_route(gateway_ip)
+
                 cmd_avx_config_ip = "va run %s \"%s\"" % (va_name, cmd_apv_config_ip)
+                cmd_avx_config_route = "va run %s \"%s\"" % (va_name, cmd_apv_config_route)
                 base_rest_url = "https://" + host + ":9997/rest/avx"
                 self.run_cli_extend(base_rest_url, cmd_avx_config_ip)
-                self.cache.put(tenant_id, vip_id, host, iface['port_id'])
+                self.run_cli_extend(base_rest_url, cmd_avx_config_route)
+                self.cache.put(pool_id, vip_id, host, iface['port_id'])
             self.cache.dump()
 
 
     def _delete_vip(self,
                     va_name,
-                    tenant_id,
+                    pool_id,
                     vip_id,
                     vlan_tag
                    ):
 
         interface_name = self.in_interface
-        if vlan_tag:
+        if vlan_tag != 'None':
             interface_name = "vlan." + vlan_tag
 
         # configure vip
         cmd_apv_no_ip = ADCDevice.no_ip(interface_name)
+        cmd_apv_no_route = ADCDevice.clear_route()
+
         cmd_avx_no_ip = "va run %s \"%s\"" % (va_name, cmd_apv_no_ip)
+        cmd_avx_no_route = "va run %s \"%s\"" % (va_name, cmd_apv_no_route)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_no_ip)
+            self.run_cli_extend(base_rest_url, cmd_avx_no_route)
 
-        self.cache.remove_vip(tenant_id, vip_id)
+        self.cache.remove_vip(pool_id, vip_id)
         self.cache.dump()
 
-        if vlan_tag:
+        if vlan_tag != 'None':
             cmd_apv_no_vlan_device = ADCDevice.no_vlan_device(interface_name)
             cmd_avx_no_vlan_device = "va run %s \"%s\"" % (va_name, cmd_apv_no_vlan_device)
             for base_rest_url in self.base_rest_urls:
@@ -298,7 +311,7 @@ class ArrayAVXAPIDriver(object):
         cmd_avx_no_group = "va run %s \"%s\"" % (va_name, cmd_apv_no_group)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_no_group)
-        self.cache.remove_group(argu['tenant_id'])
+        self.cache.remove_group(argu['pool_id'])
 
 
     def create_member(self, argu):
@@ -397,7 +410,7 @@ class ArrayAVXAPIDriver(object):
             return True
 
         interface_name = self.in_interface
-        if vlan_tag:
+        if vlan_tag != 'None':
             interface_name = "vlan." + vlan_tag
 
         cmd_apv_disable_cluster = ADCDevice.cluster_disable(interface_name)
@@ -421,7 +434,7 @@ class ArrayAVXAPIDriver(object):
             return True
 
         interface_name = self.in_interface
-        if vlan_tag:
+        if vlan_tag != 'None':
             interface_name = "vlan." + vlan_tag
 
         cmd_apv_config_virtual_iface = ADCDevice.cluster_config_virtual_interface(interface_name)
@@ -446,4 +459,4 @@ class ArrayAVXAPIDriver(object):
 
 
     def get_cached_map(self, argu):
-        return self.cache.get_interface_map_by_vip(argu['tenant_id'], argu['vip_id'])
+        return self.cache.get_interface_map_by_vip(argu['pool_id'], argu['vip_id'])

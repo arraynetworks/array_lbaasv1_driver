@@ -35,6 +35,16 @@ class ADCDevice(object):
         return cmd
 
     @staticmethod
+    def configure_route(gateway_ip):
+        cmd = "ip route default %s" % (gateway_ip)
+        return cmd
+
+    @staticmethod
+    def clear_route():
+        cmd = "clear ip route"
+        return cmd
+
+    @staticmethod
     def no_ip(interface):
         cmd = "no ip address %s" % interface
         return cmd

@@ -85,14 +85,16 @@ class LogicalAVXCache(object):
     va_name_prefix = "va"
     def __init__(self):
         self.mapping = {}
-        self.va_pools = None
+        self.va_pools = []
         self._generate_va_pools()
         self._reload()
 
     # FIXME: should automatically generate the VA following
     # AVX's model.
     def _generate_va_pools(self):
-        self.va_pools = ['va01', 'va02', 'va03', 'va04']
+        for i in range(1, 17):
+            va_name = "port4_va%02d" % i
+            self.va_pools.append(va_name)
 
     def _reload(self):
         """ Reload the mapping between tenant and VA """
@@ -103,24 +105,24 @@ class LogicalAVXCache(object):
             LOG.debug("After loading, the mapping is %s", self.mapping)
         if self.mapping:
             for tid in self.mapping.keys():
-                va_name = self.get_va_by_tenant(tid)
-                self.va_pools.remove(va_name)
+                va_name = self.get_va_by_pool(tid)
+                self.va_pools = [x for x in self.va_pools if x != va_name]
             LOG.debug("For now, va_pools is %s", self.va_pools)
 
     def dump(self):
         with open(TENANT_AVX_MAPPING, 'w') as fd:
             json.dump(self.mapping, fd)
 
-    def put(self, tenant_id, vip_id, host, port_id, dump = False):
+    def put(self, pool_id, vip_id, host, port_id, dump = False):
         lb_item = {}
         interface_map = {}
         va_name = None
 
-        if not tenant_id or not vip_id or not host or not port_id:
+        if not pool_id or not vip_id or not host or not port_id:
             LOG.debug("The argument cannot be NONE")
             return va_name
 
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             interface_map = lb_item.get(vip_id, None)
@@ -132,57 +134,57 @@ class LogicalAVXCache(object):
             self.dump()
         return va_name
 
-    def remove(self, tenant_id):
-        if not tenant_id:
+    def remove(self, pool_id):
+        if not pool_id:
             LOG.debug("The argument cannot be NONE")
             return None
         va_name = None
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             self.va_pools.append(va_name)
             LOG.debug("After running remove, va_pools is %s", self.va_pools)
-            del self.mapping[tenant_id]
+            del self.mapping[pool_id]
             self.dump()
         return va_name
 
-    def remove_group(self, tenant_id):
-        if not tenant_id:
+    def remove_group(self, pool_id):
+        if not pool_id:
             LOG.debug("The argument cannot be NONE")
             return None
         va_name = None
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             if len(lb_item) <= 1:
-                del self.mapping[tenant_id]
+                del self.mapping[pool_id]
                 LOG.debug("Will add (%s) into va_pools", va_name)
                 self.va_pools.append(va_name)
                 LOG.debug("After running remove_group, va_pools is %s", self.va_pools)
             self.dump()
         return va_name
 
-    def remove_vip(self, tenant_id, vip_id):
-        if not tenant_id or not vip_id:
+    def remove_vip(self, pool_id, vip_id):
+        if not pool_id or not vip_id:
             LOG.debug("The argument cannot be NONE")
             return None
         va_name = None
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             lb_item.pop(vip_id, None)
             if len(lb_item) <= 1:
-                del self.mapping[tenant_id]
+                del self.mapping[pool_id]
                 LOG.debug("Will add (%s) into va_pools", va_name)
                 self.va_pools.append(va_name)
                 LOG.debug("After running remove_vip, va_pools is %s", self.va_pools)
             self.dump()
         return va_name
 
-    def get_va_by_tenant(self, tenant_id):
-        if not tenant_id:
+    def get_va_by_pool(self, pool_id):
+        if not pool_id:
             return None
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         va_name = None
         if lb_item:
             va_name = lb_item['va_name']
@@ -194,17 +196,17 @@ class LogicalAVXCache(object):
                 return va_name
             va_name = self.va_pools.pop(0)
             lb_item['va_name'] = va_name
-            self.mapping[tenant_id] = lb_item
+            self.mapping[pool_id] = lb_item
             LOG.debug("After allocate, va_pools is %s", self.va_pools)
             self.dump()
         return va_name
 
-    def get_interface_map_by_vip(self, tenant_id, vip_id):
+    def get_interface_map_by_vip(self, pool_id, vip_id):
         interface_map = None
-        if not vip_id or not tenant_id:
+        if not vip_id or not pool_id:
             return interface_map
 
-        lb_item = self.mapping.get(tenant_id, None)
+        lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             interface_map = lb_item.get(vip_id, None)
         return interface_map
@@ -212,7 +214,7 @@ class LogicalAVXCache(object):
     def print_cache(self):
         LOG.debug("va_pools is %s", self.va_pools)
         for k in self.mapping.keys():
-            LOG.debug("Tenant ID: %s" % k)
+            LOG.debug("Pool ID: %s" % k)
             for vk in self.mapping[k].keys():
                 if vk == 'va_name':
 		    LOG.debug("va_name: %s" % self.mapping[k][vk])
@@ -228,9 +230,9 @@ if __name__ == '__main__':
     cache.print_cache()
     #cache.remove_vip("first_tenant_id", "first_vip_id")
     #cache.remove_vip("second_tenant_id", "second_vip_id")
-    va_name = cache.get_va_by_tenant("first_tenant_id")
+    va_name = cache.get_va_by_pool("first_tenant_id")
     #LOG.debug("va_name: %s" % va_name)
-    #va_name = cache.get_va_by_tenant("second_tenant_id")
+    #va_name = cache.get_va_by_pool("second_tenant_id")
     #LOG.debug("va_name: %s" % va_name)
     cache.put("first_tenant_id", "first_vip_id", "host_1", "first_port_id")
     cache.put("first_tenant_id", "first_vip_id", "host_2", "second_port_id")

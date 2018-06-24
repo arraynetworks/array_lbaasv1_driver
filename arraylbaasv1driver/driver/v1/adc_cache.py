@@ -83,9 +83,10 @@ class LogicalAVXCache(object):
     The cache of Logical APVs in AVX
     """
     va_name_prefix = "va"
-    def __init__(self):
+    def __init__(self, in_interface):
         self.mapping = {}
         self.va_pools = []
+        self.in_interface = in_interface
         self._generate_va_pools()
         self._reload()
 
@@ -93,7 +94,7 @@ class LogicalAVXCache(object):
     # AVX's model.
     def _generate_va_pools(self):
         for i in range(1, 17):
-            va_name = "port4_va%02d" % i
+            va_name = "%s_va%02d" % (self.in_interface, i)
             self.va_pools.append(va_name)
 
     def _reload(self):

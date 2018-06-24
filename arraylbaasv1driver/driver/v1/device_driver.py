@@ -17,6 +17,7 @@
 # @author: Array Networks, Inc.
 
 import netaddr
+import time
 
 from oslo.config import cfg
 from oslo_log import log as logging
@@ -93,7 +94,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             LOG.error(msg)
             raise SystemExit(msg)
 
-    def create_vip(self, context, vip):
+    def create_vip(self, context, vip, updated=True):
         LOG.debug("Create a vip on Array ADC device")
         LOG.debug("vip = %s",vip)
 
@@ -114,7 +115,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
 
         if vip['session_persistence']:
             sp_type = vip['session_persistence']['type']
-            ck_name = vip['session_persistence']['cookie_name']
+            ck_name = vip['session_persistence'].get('cookie_name', None)
 
         tenant_id = vip['tenant_id']
 
@@ -165,24 +166,35 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['interface_mapping'] = interface_mapping
         self.client.allocate_vip(argu)
 
-        status = constants.ACTIVE
-        self.plugin.update_status(context, loadbalancer_db.Vip, vip["id"],
-                                  status)
+        if updated:
+            status = constants.ACTIVE
+            self.plugin.update_status(context, loadbalancer_db.Vip, vip["id"],
+                                      status)
 
 
     def update_vip(self, context, old_vip, vip):
         LOG.debug("Update a vip on Array apv device")
         LOG.debug("old vip = %s", old_vip)
         LOG.debug("vip = %s", vip)
-        # FIXME
-        self.delete_vip(context, old_vip)
-        self.create_vip(context, vip)
+        need_recreate = False
+
+        # need double check
+        for changed in ('pool_id', 'connection_limit', 'session_persistence'):
+            if old_vip[changed] != vip[changed]:
+                need_recreate = True
+
+        if need_recreate:
+            LOG.debug("Will delete the old_vip: %s", old_vip)
+            self.delete_vip(context, old_vip, updated=False)
+
+            LOG.debug("Will re-create the vip: %s", vip)
+            self.create_vip(context, vip, updated=False)
 
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Vip, old_vip["id"],
                                   status)
 
-    def delete_vip(self, context, vip):
+    def delete_vip(self, context, vip, updated=True):
         LOG.debug("Delete a vip on Array apv device")
         LOG.debug("vip = %s", vip)
 
@@ -216,10 +228,11 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
                     self.plugin._core_plugin.delete_port(context, port_id)
 
         self.client.deallocate_vip(argu)
-        self.plugin._delete_db_vip(context, vip['id'])
+        if updated:
+            self.plugin._delete_db_vip(context, vip['id'])
 
 
-    def create_pool(self,context,pool):
+    def create_pool(self, context, pool, updated=True):
         LOG.debug("Create a pool on Array apv device")
         LOG.debug("create pool = %s",pool)
 
@@ -229,35 +242,88 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu["lb_algorithm"] = pool["lb_method"]
         self.client.create_group(argu)
 
-        status = constants.ACTIVE
-        self.plugin.update_status(context, loadbalancer_db.Pool,
-                                  pool["id"], status)
+        if updated:
+            status = constants.ACTIVE
+            self.plugin.update_status(context, loadbalancer_db.Pool,
+                                      pool["id"], status)
 
 
     def update_pool(self, context, old_pool, pool):
+        LOG.debug("Update a pool on Array apv device")
         LOG.debug("Update old pool = %s", old_pool)
-        LOG.debug("Delete pool = %s", pool)
+        LOG.debug("Update pool = %s", pool)
+        need_recreate = False
 
-        self.delete_pool(context, old_pool)
-        self.create_pool(context, old_pool)
+
+        if old_pool['lb_method'] != pool['lb_method']:
+            need_recreate = True
+
+        if need_recreate:
+            members = []
+            pool_hms = []
+            vip = None
+            for member_id in pool['members']:
+                member = self.plugin.get_member(context, member_id)
+                LOG.debug("A member(%s) = %s", (member_id, member))
+                members.append(member)
+                self.delete_member(context, member, updated=False)
+
+            for hm_id in pool['health_monitors']:
+                LOG.debug("Get pool_hm: %s", hm_id)
+                hm = self.plugin.get_health_monitor(context, hm_id)
+                LOG.debug("A hm(%s) = %s", (hm_id, hm))
+                pool_hms.append(hm)
+                self.delete_pool_health_monitor(context, hm, pool['id'], updated=False)
+
+            if pool['vip_id']:
+                vip = self.plugin.get_vip(context, pool['vip_id'])
+                LOG.debug("VIP(%s): %s", (pool['vip_id'], vip))
+                self.delete_vip(context, vip, updated=False)
+
+            self.delete_pool(context, old_pool, updated=False)
+            LOG.debug("Have clean all the configuration, and then will re-configure them")
+            time.sleep(1)
+
+            LOG.debug("Will re-create the pool: %s", pool)
+            self.create_pool(context, pool, updated=False)
+
+            if pool['vip_id']:
+                LOG.debug("Will re-create VIP(%s): %s", (pool['vip_id'], vip))
+                self.create_vip(context, vip, updated=False)
+
+            for member in members:
+                LOG.debug("Will re-create the member: %s", member)
+                self.create_member(context, member, updated=False)
+
+            for hm in pool_hms:
+                LOG.debug("Will re-create the hm: %s", hm)
+                self.create_pool_health_monitor(context, hm, pool['id'], updated=False)
 
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Pool,
                                   old_pool["id"], status)
 
-    def delete_pool(self, context, pool):
+    def delete_pool(self, context, pool, updated=True):
         LOG.debug("Delete a pool on Array apv device")
         LOG.debug("Delete pool = %s", pool)
 
         argu = {}
+        members_dict = {}
         argu['tenant_id'] = pool['tenant_id']
         argu['pool_id'] = pool["id"]
         argu["lb_algorithm"] = pool["lb_method"]
+        argu['health_monitors'] = pool['health_monitors']
+
+        for member_id in pool['members']:
+            member = self.plugin.get_member(context, member_id)
+            members_dict[member_id] = pool.get('protocol', None)
+        argu['members'] = members_dict
         self.client.delete_group(argu)
 
-        self.plugin._delete_db_pool(context, pool['id'])
+        if updated:
+            self.plugin._delete_db_pool(context, pool['id'])
 
-    def create_member(self, context, member):
+    def create_member(self, context, member, updated=True):
         LOG.debug("Create a member on Array apv device")
         LOG.debug("member=%s",member)
         status = constants.ACTIVE
@@ -275,22 +341,38 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
 
         self.client.create_member(argu)
 
-        self.plugin.update_status(context, loadbalancer_db.Member,
-                                  member["id"], status)
+        if updated:
+            self.plugin.update_status(context, loadbalancer_db.Member,
+                                      member["id"], status)
 
     def update_member(self,context,old_member,member):
         LOG.debug("Update a member on Array apv device")
         LOG.debug("old_member=%s",old_member)
         LOG.debug("member=%s",member)
-        #FIXME
-        self.client.delete_member(context, old_member)
-        self.client.create_member(context, member)
+        need_update = False
+        need_recreate = False
+
+        if old_member['pool_id'] != member['pool_id']:
+            need_recreate = True
+        elif old_member['weight'] != member['weight']:
+            need_update = True
+
+        if need_update:
+            argu = {}
+            argu['pool_id'] = member['pool_id']
+            argu['member_id'] = member['id']
+            argu['member_weight'] = member['weight']
+            self.client.update_member(argu)
+        elif need_recreate:
+            self.delete_member(context, old_member, updated=False)
+            self.create_member(context, member, updated=False)
+
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Member,
                                   old_member["id"], status)
 
 
-    def delete_member(self,context,member):
+    def delete_member(self, context, member, updated=True):
         LOG.debug("Delete a member on Array apv device")
         LOG.debug("member=%s",member)
 
@@ -303,10 +385,12 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['pool_id'] = member['pool_id']
 
         self.client.delete_member(argu)
-        self.plugin._delete_db_member(context, member['id'])
+
+        if updated:
+            self.plugin._delete_db_member(context, member['id'])
 
 
-    def create_pool_health_monitor(self, context, health_monitor, pool_id):
+    def create_pool_health_monitor(self, context, health_monitor, pool_id, updated=True):
         LOG.debug("Create a pool health monitor on Array apv device")
         LOG.debug("health_monito=%s",health_monitor)
         LOG.debug("pool_id=%s",pool_id)
@@ -335,26 +419,29 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         status = constants.ACTIVE
         self.client.create_health_monitor(argu)
 
-        self.plugin.update_pool_health_monitor(context,
-                                               health_monitor['id'],
-                                               pool_id,
-                                               status, "")
+        if updated:
+            self.plugin.update_pool_health_monitor(context,
+                                                   health_monitor['id'],
+                                                   pool_id,
+                                                   status, "")
 
     def update_pool_health_monitor(self,context,old_health_monitor,health_monitor,pool_id):
         LOG.debug("Update a pool health monitor on Array apv device")
         LOG.debug("old_health_monitor=%s",old_health_monitor)
         LOG.debug("health_monitor=%s",health_monitor)
-        # FIXME
+
         self.delete_pool_health_monitor(
                                        context,
                                        old_health_monitor,
-                                       pool_id
+                                       pool_id,
+                                       updated=False
                                        )
 
         self.create_pool_health_monitor(
                                        context,
                                        health_monitor,
-                                       pool_id
+                                       pool_id,
+                                       updated=False
                                        )
         status = constants.ACTIVE
         self.plugin.update_pool_health_monitor(context,
@@ -363,7 +450,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
                                                status, "")
 
 
-    def delete_pool_health_monitor(self, context, health_monitor, pool_id):
+    def delete_pool_health_monitor(self, context, health_monitor, pool_id, updated=True):
         LOG.debug("Delete a pool health monitor on Array apv device")
         LOG.debug("health_monito=%s",health_monitor)
         LOG.debug("pool_id=%s",pool_id)
@@ -374,9 +461,10 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['hm_id'] = health_monitor['id']
 
         self.client.delete_health_monitor(argu)
-        self.plugin._delete_db_pool_health_monitor(context,
-                                                       health_monitor['id'],
-                                                       pool_id)
+        if updated:
+            self.plugin._delete_db_pool_health_monitor(context,
+                                                           health_monitor['id'],
+                                                           pool_id)
 
     def stats(self,context,pool_id):
         LOG.debug("Retrieve pool statistics from the Array apv device")

@@ -13,6 +13,7 @@
 import json
 import requests
 import logging
+import time
 
 from arraylbaasv1driver.driver.v1.exceptions import ArrayADCException
 from arraylbaasv1driver.driver.v1.adc_cache import LogicalAVXCache
@@ -28,10 +29,10 @@ class ArrayAVXAPIDriver(object):
     def __init__(self, management_ip, in_interface, user_name, user_passwd):
         self.user_name = user_name
         self.user_passwd = user_passwd
-        self.in_interface = in_interface
+        self.in_interface = "port2"
         self.hostnames = management_ip
         self.base_rest_urls = ["https://" + host + ":9997/rest/avx" for host in self.hostnames]
-        self.cache = LogicalAVXCache()
+        self.cache = LogicalAVXCache(in_interface)
 
 
     def get_auth(self):
@@ -143,6 +144,16 @@ class ArrayAVXAPIDriver(object):
         """ create vip"""
 
         interface_name = self.in_interface
+
+        # mock to set the mac
+        if vip_port_mac:
+            mock_mac = "0c:c4:7a:7c:af:f6"
+            cmd_apv_config_mac = "interface mac %s %s" % (interface_name, mock_mac)
+            cmd_avx_config_mac = "va run %s \"%s\"" % (va_name, cmd_apv_config_mac)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_avx_config_mac)
+
+        time.sleep(1)
 
         # update the mac
         if vip_port_mac:
@@ -302,6 +313,12 @@ class ArrayAVXAPIDriver(object):
             self.run_cli_extend(base_rest_url, cmd_avx_create_group)
 
 
+    def update_group(self, argu):
+        """ Create SLB group in lb-pool-create"""
+
+        self.create_group(argu)
+
+
     def delete_group(self, argu):
         """Delete SLB group in lb-pool-delete"""
 
@@ -311,6 +328,20 @@ class ArrayAVXAPIDriver(object):
         cmd_avx_no_group = "va run %s \"%s\"" % (va_name, cmd_apv_no_group)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_no_group)
+
+        member_dict = argu['members']
+        for member in member_dict.keys():
+            cmd_apv_no_member = ADCDevice.no_real_server(member_dict[member], member)
+            cmd_avx_no_member = "va run %s \"%s\"" % (va_name, cmd_apv_no_member)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_avx_no_member)
+
+        for health_monitor in argu['health_monitors']:
+            cmd_apv_no_hm = ADCDevice.no_health_monitor(health_monitor)
+            cmd_avx_no_hm = "va run %s \"%s\"" % (va_name, cmd_apv_no_hm)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_avx_no_hm)
+
         self.cache.remove_group(argu['pool_id'])
 
 
@@ -336,6 +367,20 @@ class ArrayAVXAPIDriver(object):
         cmd_avx_add_rs_into_group = "va run %s \"%s\"" % (va_name, cmd_apv_add_rs_into_group)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_create_rs)
+            self.run_cli_extend(base_rest_url, cmd_avx_add_rs_into_group)
+
+    def update_member(self, argu):
+        """ Update a member"""
+
+        va_name = self.get_va_name(argu)
+        cmd_apv_add_rs_into_group = ADCDevice.add_rs_into_group(
+                                                               argu['pool_id'],
+                                                               argu['member_id'],
+                                                               argu['member_weight']
+                                                               )
+
+        cmd_avx_add_rs_into_group = "va run %s \"%s\"" % (va_name, cmd_apv_add_rs_into_group)
+        for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_add_rs_into_group)
 
 

@@ -69,6 +69,7 @@ class ADCDevice(object):
         (algorithm, first_choice_method, policy) = \
             service_group_lb_method(lb_algorithm, None)
         cmd = None
+
         if first_choice_method:
             if algorithm == 'HC':
                 cmd = "slb group method %s hc %s" % (name, first_choice_method)
@@ -100,7 +101,8 @@ class ADCDevice(object):
             cmd = "slb policy default %s %s" % \
                 (vs_name, group_name)
         elif policy == 'PC':
-            cmd = "slb policy persistent cookie %s %s %s %s" % \
+            #FIXME: Make sure the default value
+            cmd = "slb policy persistent cookie %s %s %s %s 100" % \
                 (vs_name, vs_name, group_name, cookie_name)
         elif policy == 'IC':
             cmd = "slb policy icookie %s %s %s" % (vs_name, vs_name, group_name)
@@ -124,7 +126,7 @@ class ADCDevice(object):
                            member_port,
                            protocol
                           ):
-        cmd = "slb real %s %s %s %s" % (protocol, member_name,\
+        cmd = "slb real %s %s %s %s 1000 none" % (protocol, member_name,\
                 member_address, member_port)
         return cmd
 

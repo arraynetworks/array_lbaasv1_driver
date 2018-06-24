@@ -15,7 +15,6 @@ import requests
 import logging
 
 from arraylbaasv1driver.driver.v1.exceptions import ArrayADCException
-from arraylbaasv1driver.driver.v1.adc_map import service_group_lb_method
 from arraylbaasv1driver.driver.v1.adc_cache import LogicalAPVCache
 from arraylbaasv1driver.driver.v1.adc_device import ADCDevice
 
@@ -44,6 +43,9 @@ class ArrayAPVAPIDriver(object):
 
         if not argu:
             LOG.error("In allocate_vip, it should not pass the None.")
+
+        if argu['vlan_tag'] == "None":
+            argu['vlan_tag'] = None
 
         # create vip
         self._create_vip(argu['vip_id'],
@@ -78,6 +80,9 @@ class ArrayAPVAPIDriver(object):
 
         if not argu:
             LOG.error("In deallocate_vip, it should not pass the None.")
+
+        if argu['vlan_tag'] == "None":
+            argu['vlan_tag'] = None
 
         # delete policy
         self._delete_policy(
@@ -182,39 +187,25 @@ class ArrayAPVAPIDriver(object):
                    protocol,
                    protocol_port,
                    connection_limit):
-        max_conn = connection_limit
-        if max_conn == -1:
-            max_conn = 0
-        payload = {
-            "service_name": vip_id,
-            "vip": vip_address,
-            "vport": protocol_port,
-            "max_conn": max_conn
-        }
 
+        cmd_apv_create_vs = ADCDevice.create_virtual_service(
+                                                             vip_id,
+                                                             vip_address,
+                                                             protocol_port,
+                                                             protocol,
+                                                             connection_limit
+                                                            )
         for base_rest_url in self.base_rest_urls:
-            url = base_rest_url + '/loadbalancing/slb/vs/protocols/' + \
-                protocol + 'VirtualService'
-            LOG.debug("create_listener URL: --%s--", url)
-            LOG.debug("create_listener payload: --%s--", payload)
-            r = requests.post(url, data=json.dumps(payload), auth=self.get_auth(),
-                          verify=False)
-            if r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_create_vs)
 
 
     def _delete_vs(self, vip_id, protocol):
+        cmd_apv_no_vs = ADCDevice.no_virtual_service(
+                                                     vip_id,
+                                                     protocol
+                                                    )
         for base_rest_url in self.base_rest_urls:
-            url = '%s/loadbalancing/slb/vs/protocols/%sVirtualService/%s' % (
-                   base_rest_url, protocol, vip_id)
-            LOG.debug("delete_vs URL: --%s--", url)
-            r = requests.delete(url, auth=self.get_auth(), verify=False)
-            if r.status_code == 404:
-                pass
-            elif r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_no_vs)
 
 
     def _create_policy(self,
@@ -225,37 +216,28 @@ class ArrayAPVAPIDriver(object):
                        cookie_name):
         """ Create SLB policy """
 
-        (algorithm, first_choice_method, policy) = service_group_lb_method(lb_algorithm,
-                                                   session_persistence_type)
-        payload = {
-            "name": vip_id,
-            "src": vip_id,
-            "dst": pool_id
-        }
-        if policy == 'PC':
-            payload['cookie_name'] = cookie_name
+        cmd_apv_create_policy = ADCDevice.create_policy(
+                                                        vip_id,
+                                                        pool_id,
+                                                        lb_algorithm,
+                                                        session_persistence_type,
+                                                        cookie_name
+                                                       )
+
         for base_rest_url in self.base_rest_urls:
-            url = base_rest_url + '/loadbalancing/slb/policy/types/' + policy + 'Policy'
-            LOG.debug("create_policy URL: --%s--", url)
-            LOG.debug("create_policy payload: --%s--", payload)
-            r = requests.post(url, data=json.dumps(payload), auth=self.get_auth(),
-                              verify=False)
-            if r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_create_policy)
 
 
     def _delete_policy(self, vip_id, session_persistence_type, lb_algorithm):
         """ Delete SLB policy """
-        (_, _, policy) = service_group_lb_method(lb_algorithm,
-                                                   session_persistence_type)
+
+        cmd_apv_no_policy = ADCDevice.no_policy(
+                                                vip_id,
+                                                lb_algorithm,
+                                                session_persistence_type
+                                               )
         for base_rest_url in self.base_rest_urls:
-            url = base_rest_url + '/loadbalancing/slb/policy/types/' + policy + 'Policy/' + vip_id
-            LOG.debug("delete policy URL: --%s--", url)
-            r = requests.delete(url, auth=self.get_auth(), verify=False)
-            if r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_no_policy)
 
 
     def create_group(self, argu):
@@ -264,43 +246,33 @@ class ArrayAPVAPIDriver(object):
         if not argu:
             LOG.error("In create_group, it should not pass the None.")
 
-        (algorithm, first_choice_method, policy) = service_group_lb_method(argu['lb_algorithm'],
-                                                   None)
-        payload = {
-            "group_name": argu['pool_id'],
-        }
-        if first_choice_method:
-            payload['first_choice_method'] = first_choice_method
-
+        cmd_apv_create_group = ADCDevice.create_group(argu['pool_id'], argu['lb_algorithm'])
         for base_rest_url in self.base_rest_urls:
-            url = '%s/loadbalancing/slb/group/methods/%sGroup' % (base_rest_url, algorithm)
-            LOG.debug("create_group URL: --%s--", url)
-            LOG.debug("create_group payload: --%s--", payload)
-            r = requests.post(url, data=json.dumps(payload), auth=self.get_auth(),
-                          verify=False)
-            if r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_create_group)
 
+
+    def update_group(self, argu):
+        """ Create SLB group in lb-pool-create"""
+
+        self.create_group(argu)
 
     def delete_group(self, argu):
         """Delete SLB group in lb-pool-delete"""
 
-        if not argu:
-            LOG.error("In delete_group, it should not pass the None.")
-
-        (algorithm, first_choice_method, policy) = service_group_lb_method(argu['lb_algorithm'],
-                                                   None)
+        cmd_apv_no_group = ADCDevice.no_group(argu['pool_id'])
         for base_rest_url in self.base_rest_urls:
-            url = '%s/loadbalancing/slb/group/methods/%sGroup/%s' % (
-                base_rest_url, algorithm, argu['pool_id'])
-            LOG.debug("delete_group URL: --%s--", url)
-            r = requests.delete(url, auth=self.get_auth(), verify=False)
-            if r.status_code == 404:
-                pass
-            elif r.status_code != 200:
-                msg = r.text
-                raise ArrayADCException(msg, r.status_code)
+            self.run_cli_extend(base_rest_url, cmd_apv_no_group)
+
+        member_dict = argu['members']
+        for member in member_dict.keys():
+            cmd_apv_no_member = ADCDevice.no_real_server(member_dict[member], member)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_apv_no_member)
+
+        for health_monitor in argu['health_monitors']:
+            cmd_apv_no_hm = ADCDevice.no_health_monitor(health_monitor)
+            for base_rest_url in self.base_rest_urls:
+                self.run_cli_extend(base_rest_url, cmd_apv_no_hm)
 
 
     def create_member(self, argu):
@@ -324,6 +296,21 @@ class ArrayAPVAPIDriver(object):
                                                             )
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_create_member)
+            self.run_cli_extend(base_rest_url, cmd_add_rs_to_group)
+
+
+    def update_member(self, argu):
+        """ Update a member"""
+
+        if not argu:
+            LOG.error("In update_member, it should not pass the None.")
+
+        cmd_add_rs_to_group = "slb group member %s %s %s" % (
+                                                            argu['pool_id'],
+                                                            argu['member_id'],
+                                                            argu['member_weight']
+                                                            )
+        for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_add_rs_to_group)
 
 
@@ -374,6 +361,7 @@ class ArrayAPVAPIDriver(object):
         payload = {
             "cmd": cmd
         }
+        LOG.debug("Run cmd: %s" % cmd)
         r = requests.post(url, json.dumps(payload), auth=self.get_auth(), verify=False)
         if r.status_code != 200:
             msg = r.text

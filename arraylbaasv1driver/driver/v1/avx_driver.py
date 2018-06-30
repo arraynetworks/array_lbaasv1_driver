@@ -48,7 +48,10 @@ class ArrayAVXAPIDriver(object):
             msg = "No pool_id in argument, raise it"
             raise ArrayADCException(msg)
 
-        va_name = self.cache.get_va_by_pool(pool_id)
+        va_name = self.cache.find_va_by_pool(pool_id)
+        if not va_name:
+            LOG.debug("Failed to find any VA, continue...")
+            va_name = self.cache.get_va_by_pool(pool_id)
         if not va_name:
             msg = "Cannot get the vAPV by pool_id(%s)" % pool_id
             raise ArrayADCException(msg)
@@ -71,6 +74,14 @@ class ArrayAVXAPIDriver(object):
                          argu['vip_port_mac'],
                          argu['gateway_ip']
                         )
+
+        # create group
+        self._create_group(
+                          va_name,
+                          argu['pool_id'],
+                          argu['lb_algorithm'],
+                          argu['session_persistence_type']
+                          )
 
         # create vs
         self._create_vs(
@@ -99,10 +110,16 @@ class ArrayAVXAPIDriver(object):
                        argu['vip_address']
                       )
 
-    def deallocate_vip(self, argu):
+    def deallocate_vip(self, argu, updated=True):
         """ Delete VIP in lb_delete_vip """
 
         va_name = self.get_va_name(argu)
+
+        # delete group
+        self._delete_group(
+                           va_name,
+                           argu['pool_id'],
+                           )
 
         # delete policy
         self._delete_policy(
@@ -124,7 +141,8 @@ class ArrayAVXAPIDriver(object):
                          va_name,
                          argu['tenant_id'],
                          argu['vip_id'],
-                         argu['vlan_tag']
+                         argu['vlan_tag'],
+                         updated
                         )
 
         self.no_ha(va_name, argu['vlan_tag'])
@@ -206,7 +224,8 @@ class ArrayAVXAPIDriver(object):
                     va_name,
                     pool_id,
                     vip_id,
-                    vlan_tag
+                    vlan_tag,
+                    updated
                    ):
 
         interface_name = self.in_interface
@@ -223,8 +242,9 @@ class ArrayAVXAPIDriver(object):
             self.run_cli_extend(base_rest_url, cmd_avx_no_ip)
             self.run_cli_extend(base_rest_url, cmd_avx_no_route)
 
-        self.cache.remove_vip(pool_id, vip_id)
-        self.cache.dump()
+        if updated:
+            self.cache.remove_vip(pool_id, vip_id)
+            self.cache.dump()
 
         if vlan_tag != 'None':
             cmd_apv_no_vlan_device = ADCDevice.no_vlan_device(interface_name)
@@ -302,24 +322,31 @@ class ArrayAVXAPIDriver(object):
             self.run_cli_extend(base_rest_url, cmd_avx_no_policy)
 
 
+
     def create_group(self, argu):
         """ Create SLB group in lb-pool-create"""
 
         va_name = self.get_va_name(argu)
 
-        cmd_apv_create_group = ADCDevice.create_group(argu['pool_id'], argu['lb_algorithm'])
+
+
+    def _create_group(self, va_name, pool_id, lb_algorithm, sp_type):
+
+        cmd_apv_create_group = ADCDevice.create_group(pool_id, lb_algorithm, sp_type)
         cmd_avx_create_group = "va run %s \"%s\"" % (va_name, cmd_apv_create_group)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_avx_create_group)
 
 
-    def update_group(self, argu):
-        """ Create SLB group in lb-pool-create"""
+    def _delete_group(self, va_name, pool_id):
 
-        self.create_group(argu)
+        cmd_apv_delete_group = ADCDevice.no_group(pool_id)
+        cmd_avx_delete_group = "va run %s \"%s\"" % (va_name, cmd_apv_delete_group)
+        for base_rest_url in self.base_rest_urls:
+            self.run_cli_extend(base_rest_url, cmd_avx_delete_group)
 
 
-    def delete_group(self, argu):
+    def delete_group(self, argu, updated = True):
         """Delete SLB group in lb-pool-delete"""
 
         va_name = self.get_va_name(argu)
@@ -342,7 +369,9 @@ class ArrayAVXAPIDriver(object):
             for base_rest_url in self.base_rest_urls:
                 self.run_cli_extend(base_rest_url, cmd_avx_no_hm)
 
-        self.cache.remove_group(argu['pool_id'])
+        if updated:
+            self.write_memory(argu)
+            self.cache.remove_group(argu['pool_id'])
 
 
     def create_member(self, argu):
@@ -436,6 +465,16 @@ class ArrayAVXAPIDriver(object):
             self.run_cli_extend(base_rest_url, cmd_avx_no_hm)
 
 
+    def write_memory(self, argu):
+        va_name = self.get_va_name(argu)
+
+        cmd_apv_write_memory = ADCDevice.write_memory()
+        cmd_avx_write_memory = "va run %s \"%s\"" % (va_name, cmd_apv_write_memory)
+
+        for base_rest_url in self.base_rest_urls:
+            self.run_cli_extend(base_rest_url, cmd_avx_write_memory)
+
+
     def run_cli_extend(self, base_rest_url, cmd):
         url = base_rest_url + '/cli_extend'
         payload = {
@@ -472,7 +511,7 @@ class ArrayAVXAPIDriver(object):
 
 
     def config_ha(self, va_name, vlan_tag, vip_address):
-        """ set the HA configuration when delete_vip """
+        """ set the HA configuration when create_vip """
 
         if len(self.hostnames) == 1:
             LOG.debug("Only one machine, doesn't need to configure HA")

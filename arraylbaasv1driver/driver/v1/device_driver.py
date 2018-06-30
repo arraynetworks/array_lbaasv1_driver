@@ -166,7 +166,21 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['interface_mapping'] = interface_mapping
         self.client.allocate_vip(argu)
 
+        #Add the member into this group
+        for member_id in pool['members']:
+            member = self.plugin.get_member(context, member_id)
+            LOG.debug("Will create a member(%s) = %s", (member_id, member))
+            self.create_member(context, member, updated=False)
+
+        #Add the health monitor into this group
+        for hm_id in pool['health_monitors']:
+            LOG.debug("Get pool_hm: %s", hm_id)
+            hm = self.plugin.get_health_monitor(context, hm_id)
+            LOG.debug("A hm(%s) = %s", (hm_id, hm))
+            self.create_pool_health_monitor(context, hm, pool['id'], updated=False)
+
         if updated:
+            self.client.write_memory(argu)
             status = constants.ACTIVE
             self.plugin.update_status(context, loadbalancer_db.Vip, vip["id"],
                                       status)
@@ -177,18 +191,121 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         LOG.debug("old vip = %s", old_vip)
         LOG.debug("vip = %s", vip)
         need_recreate = False
+        need_rebuild = False
 
         # need double check
-        for changed in ('pool_id', 'connection_limit', 'session_persistence'):
+        if old_vip['pool_id'] != vip['pool_id']:
+            need_rebuild = True
+        for changed in ('connection_limit', 'session_persistence'):
             if old_vip[changed] != vip[changed]:
                 need_recreate = True
 
-        if need_recreate:
+        if need_rebuild:
+            # Operations for old pool
+            # 0. get the old pool
+            LOG.debug("Will get the old_pool by id: %s", old_vip['pool_id'])
+            old_pool = self.plugin.get_pool(context, old_vip['pool_id'])
+
+            # 1. delete the group/member/health_monitor from old pool
+            LOG.debug("Will delete the member, health_monitor and pool by old_pool(%s)", old_pool)
+            self.delete_pool(context, old_pool, updated=False)
+
+            # 2. delete the vip from old pool
             LOG.debug("Will delete the old_vip: %s", old_vip)
             self.delete_vip(context, old_vip, updated=False)
 
-            LOG.debug("Will re-create the vip: %s", vip)
+            # 3. create the vip and pool from old pool
+            LOG.debug("Will re-create the old_pool: %s", old_pool)
+            self.create_pool(context, old_pool, updated=False)
+
+            # FIXME: In fact, step 4 and 5 can't work. since it doesn't have "slb group"
+            # 4. create the member from old pool
+            for member_id in old_pool['members']:
+                member = self.plugin.get_member(context, member_id)
+                LOG.debug("Will create a member(%s) = %s", (member_id, member))
+                self.create_member(context, member, updated=False)
+
+            # 5. create the health_monitor from old pool
+            for hm_id in old_pool['health_monitors']:
+                LOG.debug("Get pool_hm: %s", hm_id)
+                hm = self.plugin.get_health_monitor(context, hm_id)
+                LOG.debug("A hm(%s) = %s", (hm_id, hm))
+                self.create_pool_health_monitor(context, hm, old_pool['id'], updated=False)
+
+            # Operations for new pool
+            # 6. get the new pool
+            LOG.debug("Will get the old_pool by id: %s", vip['pool_id'])
+            pool = self.plugin.get_pool(context, vip['pool_id'])
+
+            # 7. delete the group/member/health_monitor from old pool
+            LOG.debug("Will delete the member, health_monitor and pool by old_pool(%s)", old_pool)
+            self.delete_pool(context, pool, updated=False)
+
+            # 8. create the group and vip from new pool
+            LOG.debug("Will create group and vip: %s", vip)
             self.create_vip(context, vip, updated=False)
+
+            # 9. create the member from new pool
+            for member_id in pool['members']:
+                member = self.plugin.get_member(context, member_id)
+                LOG.debug("Will create a member(%s) = %s", (member_id, member))
+                self.create_member(context, member, updated=False)
+
+            # 10. create the health_monitor from new pool
+            for hm_id in pool['health_monitors']:
+                LOG.debug("Get pool_hm: %s", hm_id)
+                hm = self.plugin.get_health_monitor(context, hm_id)
+                LOG.debug("A hm(%s) = %s", (hm_id, hm))
+                self.create_pool_health_monitor(context, hm, pool['id'], updated=False)
+
+            # 11. write memory to vip
+            argu = {}
+            argu['tenant_id'] = vip['tenant_id']
+            argu['pool_id'] = vip['pool_id']
+            self.client.write_memory(argu)
+
+            # 12. write memory to old_vip
+            argu = {}
+            argu['tenant_id'] = old_vip['tenant_id']
+            argu['pool_id'] = old_vip['pool_id']
+            self.client.write_memory(argu)
+        elif need_recreate:
+            # 0. get the old pool
+            LOG.debug("Will get the old_pool by id: %s", old_vip['pool_id'])
+            old_pool = self.plugin.get_pool(context, old_vip['pool_id'])
+
+            # 1. delete the group/member/health_monitor from old pool
+            LOG.debug("Will delete the member, health_monitor and pool by old_pool(%s)", old_pool)
+            self.delete_pool(context, old_pool, updated=False)
+
+            # 2. delete the vip from old pool
+            LOG.debug("Will delete the old_vip: %s", old_vip)
+            self.delete_vip(context, old_vip, updated=False)
+
+            # 3. create the group and vip from new pool
+            LOG.debug("Will create group and vip: %s", vip)
+            self.create_vip(context, vip, updated=False)
+
+            # 4. get the new pool
+            LOG.debug("Will get the old_pool by id: %s", vip['pool_id'])
+            pool = self.plugin.get_pool(context, vip['pool_id'])
+
+            # 5. create the member from new pool
+            for member_id in pool['members']:
+                member = self.plugin.get_member(context, member_id)
+                LOG.debug("Will create a member(%s) = %s", (member_id, member))
+                self.create_member(context, member, updated=False)
+
+            # 6. create the health_monitor from new pool
+            for hm_id in pool['health_monitors']:
+                LOG.debug("Get pool_hm: %s", hm_id)
+                hm = self.plugin.get_health_monitor(context, hm_id)
+                LOG.debug("A hm(%s) = %s", (hm_id, hm))
+                self.create_pool_health_monitor(context, hm, pool['id'], updated=False)
+            argu = {}
+            argu['tenant_id'] = vip['tenant_id']
+            argu['pool_id'] = vip['pool_id']
+            self.client.write_memory(argu)
 
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Vip, old_vip["id"],
@@ -227,8 +344,9 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
                     port_id = mapping[host]
                     self.plugin._core_plugin.delete_port(context, port_id)
 
-        self.client.deallocate_vip(argu)
+        self.client.deallocate_vip(argu, updated)
         if updated:
+            self.client.write_memory(argu)
             self.plugin._delete_db_vip(context, vip['id'])
 
 
@@ -243,6 +361,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         self.client.create_group(argu)
 
         if updated:
+            self.client.write_memory(argu)
             status = constants.ACTIVE
             self.plugin.update_status(context, loadbalancer_db.Pool,
                                       pool["id"], status)
@@ -262,29 +381,16 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             members = []
             pool_hms = []
             vip = None
-            for member_id in pool['members']:
-                member = self.plugin.get_member(context, member_id)
-                LOG.debug("A member(%s) = %s", (member_id, member))
-                members.append(member)
-                self.delete_member(context, member, updated=False)
-
-            for hm_id in pool['health_monitors']:
-                LOG.debug("Get pool_hm: %s", hm_id)
-                hm = self.plugin.get_health_monitor(context, hm_id)
-                LOG.debug("A hm(%s) = %s", (hm_id, hm))
-                pool_hms.append(hm)
-                self.delete_pool_health_monitor(context, hm, pool['id'], updated=False)
-
             if pool['vip_id']:
                 vip = self.plugin.get_vip(context, pool['vip_id'])
                 LOG.debug("VIP(%s): %s", (pool['vip_id'], vip))
                 self.delete_vip(context, vip, updated=False)
 
-            self.delete_pool(context, old_pool, updated=False)
+            self.delete_pool(context, pool, updated=False)
+
             LOG.debug("Have clean all the configuration, and then will re-configure them")
             time.sleep(1)
 
-            LOG.debug("Will re-create the pool: %s", pool)
             self.create_pool(context, pool, updated=False)
 
             if pool['vip_id']:
@@ -298,6 +404,11 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             for hm in pool_hms:
                 LOG.debug("Will re-create the hm: %s", hm)
                 self.create_pool_health_monitor(context, hm, pool['id'], updated=False)
+
+            argu = {}
+            argu['tenant_id'] = pool['tenant_id']
+            argu['pool_id'] = pool["id"]
+            self.client.write_memory(argu)
 
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Pool,
@@ -315,10 +426,9 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         argu['health_monitors'] = pool['health_monitors']
 
         for member_id in pool['members']:
-            member = self.plugin.get_member(context, member_id)
             members_dict[member_id] = pool.get('protocol', None)
         argu['members'] = members_dict
-        self.client.delete_group(argu)
+        self.client.delete_group(argu, updated)
 
         if updated:
             self.plugin._delete_db_pool(context, pool['id'])
@@ -342,6 +452,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         self.client.create_member(argu)
 
         if updated:
+            self.client.write_memory(argu)
             self.plugin.update_status(context, loadbalancer_db.Member,
                                       member["id"], status)
 
@@ -363,9 +474,14 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
             argu['member_id'] = member['id']
             argu['member_weight'] = member['weight']
             self.client.update_member(argu)
+            self.client.write_memory(argu)
         elif need_recreate:
             self.delete_member(context, old_member, updated=False)
             self.create_member(context, member, updated=False)
+            argu = {}
+            argu['pool_id'] = member['pool_id']
+            argu['tenant_id'] = member['tenant_id']
+            self.client.write_memory(argu)
 
         status = constants.ACTIVE
         self.plugin.update_status(context, loadbalancer_db.Member,
@@ -387,6 +503,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         self.client.delete_member(argu)
 
         if updated:
+            self.client.write_memory(argu)
             self.plugin._delete_db_member(context, member['id'])
 
 
@@ -420,6 +537,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
         self.client.create_health_monitor(argu)
 
         if updated:
+            self.client.write_memory(argu)
             self.plugin.update_pool_health_monitor(context,
                                                    health_monitor['id'],
                                                    pool_id,
@@ -443,6 +561,12 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
                                        pool_id,
                                        updated=False
                                        )
+
+        argu = {}
+        argu['tenant_id'] = health_monitor['tenant_id']
+        argu['pool_id'] = pool_id
+        self.client.write_memory(argu)
+
         status = constants.ACTIVE
         self.plugin.update_pool_health_monitor(context,
                                                health_monitor['id'],
@@ -462,6 +586,7 @@ class ArrayADCDriver(abstract_driver.LoadBalancerAbstractDriver):
 
         self.client.delete_health_monitor(argu)
         if updated:
+            self.client.write_memory(argu)
             self.plugin._delete_db_pool_health_monitor(context,
                                                            health_monitor['id'],
                                                            pool_id)

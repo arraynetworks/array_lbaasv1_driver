@@ -56,6 +56,13 @@ class ArrayAPVAPIDriver(object):
                          argu['vip_port_mac']
                         )
 
+        # create group
+        self._create_group(
+                           argu['pool_id'],
+                           argu['lb_algorithm'],
+                           argu['session_persistence_type'],
+                          )
+
         # create vs
         self._create_vs(argu['vip_id'],
                         argu['vip_address'],
@@ -75,7 +82,7 @@ class ArrayAPVAPIDriver(object):
         # config the HA
         self.config_ha(argu['vlan_tag'], argu['vip_address'])
 
-    def deallocate_vip(self, argu):
+    def deallocate_vip(self, argu, updated):
         """ Delete VIP in lb_delete_vip """
 
         if not argu:
@@ -242,21 +249,17 @@ class ArrayAPVAPIDriver(object):
 
     def create_group(self, argu):
         """ Create SLB group in lb-pool-create"""
+        pass
 
-        if not argu:
-            LOG.error("In create_group, it should not pass the None.")
+    def _create_group(self, pool_id, lb_algorithm, pk_type):
+        """ Create SLB group in lb-pool-create"""
 
-        cmd_apv_create_group = ADCDevice.create_group(argu['pool_id'], argu['lb_algorithm'])
+        cmd_apv_create_group = ADCDevice.create_group(pool_id, lb_algorithm, pk_type)
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_apv_create_group)
 
 
-    def update_group(self, argu):
-        """ Create SLB group in lb-pool-create"""
-
-        self.create_group(argu)
-
-    def delete_group(self, argu):
+    def delete_group(self, argu, updated):
         """Delete SLB group in lb-pool-delete"""
 
         cmd_apv_no_group = ADCDevice.no_group(argu['pool_id'])
@@ -273,6 +276,7 @@ class ArrayAPVAPIDriver(object):
             cmd_apv_no_hm = ADCDevice.no_health_monitor(health_monitor)
             for base_rest_url in self.base_rest_urls:
                 self.run_cli_extend(base_rest_url, cmd_apv_no_hm)
+        self.write_memory(argu)
 
 
     def create_member(self, argu):
@@ -354,6 +358,12 @@ class ArrayAPVAPIDriver(object):
         for base_rest_url in self.base_rest_urls:
             self.run_cli_extend(base_rest_url, cmd_apv_detach_hm)
             self.run_cli_extend(base_rest_url, cmd_apv_no_hm)
+
+
+    def write_memory(self, argu):
+        cmd_apv_write_memory = ADCDevice.write_memory()
+        for base_rest_url in self.base_rest_urls:
+            self.run_cli_extend(base_rest_url, cmd_apv_write_memory)
 
 
     def run_cli_extend(self, base_rest_url, cmd):

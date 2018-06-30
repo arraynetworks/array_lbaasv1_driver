@@ -85,17 +85,19 @@ class LogicalAVXCache(object):
     va_name_prefix = "va"
     def __init__(self, in_interface):
         self.mapping = {}
-        self.va_pools = []
         self.in_interface = in_interface
-        self._generate_va_pools()
+        self.va_pools = self._generate_va_pools()
         self._reload()
 
     # FIXME: should automatically generate the VA following
     # AVX's model.
     def _generate_va_pools(self):
+        LOG.debug("The va_pools will be generated.")
+        vas = []
         for i in range(1, 17):
             va_name = "%s_va%02d" % (self.in_interface, i)
-            self.va_pools.append(va_name)
+            vas.append(va_name)
+        return vas
 
     def _reload(self):
         """ Reload the mapping between tenant and VA """
@@ -104,15 +106,15 @@ class LogicalAVXCache(object):
         with open(TENANT_AVX_MAPPING, 'r') as fd:
             self.mapping = json.load(fd)
             LOG.debug("After loading, the mapping is %s", self.mapping)
-        if self.mapping:
-            for tid in self.mapping.keys():
-                va_name = self.get_va_by_pool(tid)
-                self.va_pools = [x for x in self.va_pools if x != va_name]
-            LOG.debug("For now, va_pools is %s", self.va_pools)
+        self.va_pools = self._generate_va_pools()
+        for dv in self.mapping.values():
+            self.va_pools = [x for x in self.va_pools if x != dv['va_name']]
+        LOG.debug("For now, va_pools is %s", self.va_pools)
 
     def dump(self):
         with open(TENANT_AVX_MAPPING, 'w') as fd:
             json.dump(self.mapping, fd)
+        LOG.debug("DUMP is Done!!!!")
 
     def put(self, pool_id, vip_id, host, port_id, dump = False):
         lb_item = {}
@@ -131,7 +133,6 @@ class LogicalAVXCache(object):
                 interface_map = {}
             interface_map[host] = port_id
             lb_item[vip_id] = interface_map
-        if dump and va_name:
             self.dump()
         return va_name
 
@@ -145,7 +146,7 @@ class LogicalAVXCache(object):
             va_name = lb_item['va_name']
             self.va_pools.append(va_name)
             LOG.debug("After running remove, va_pools is %s", self.va_pools)
-            del self.mapping[pool_id]
+            self.mapping.pop(pool_id, None)
             self.dump()
         return va_name
 
@@ -153,12 +154,14 @@ class LogicalAVXCache(object):
         if not pool_id:
             LOG.debug("The argument cannot be NONE")
             return None
+        LOG.debug("Pool_id(%s) mapping: --%s--", pool_id, self.mapping)
+        self._reload()
         va_name = None
         lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             if len(lb_item) <= 1:
-                del self.mapping[pool_id]
+                self.mapping.pop(pool_id, None)
                 LOG.debug("Will add (%s) into va_pools", va_name)
                 self.va_pools.append(va_name)
                 LOG.debug("After running remove_group, va_pools is %s", self.va_pools)
@@ -170,21 +173,36 @@ class LogicalAVXCache(object):
             LOG.debug("The argument cannot be NONE")
             return None
         va_name = None
+        LOG.debug("Pool_id(%s) mapping: --%s--", pool_id, self.mapping)
+        self._reload()
         lb_item = self.mapping.get(pool_id, None)
         if lb_item:
             va_name = lb_item['va_name']
             lb_item.pop(vip_id, None)
             if len(lb_item) <= 1:
-                del self.mapping[pool_id]
+                LOG.debug("Before running remove_vip, va_pools is %s", self.va_pools)
+                self.mapping.pop(pool_id, None)
                 LOG.debug("Will add (%s) into va_pools", va_name)
                 self.va_pools.append(va_name)
                 LOG.debug("After running remove_vip, va_pools is %s", self.va_pools)
             self.dump()
         return va_name
 
+    def find_va_by_pool(self, pool_id):
+        va_name = None
+        if not pool_id:
+            return va_name
+        LOG.debug("Pool_id(%s) mapping: --%s--", pool_id, self.mapping)
+        lb_item = self.mapping.get(pool_id, None)
+        if lb_item:
+            va_name = lb_item['va_name']
+        return va_name
+
     def get_va_by_pool(self, pool_id):
         if not pool_id:
             return None
+        LOG.debug("Pool_id(%s) mapping: --%s--", pool_id, self.mapping)
+        self._reload()
         lb_item = self.mapping.get(pool_id, None)
         va_name = None
         if lb_item:

@@ -65,9 +65,9 @@ class ADCDevice(object):
         return cmd
 
     @staticmethod
-    def create_group(name, lb_algorithm):
+    def create_group(name, lb_algorithm, sp_type):
         (algorithm, first_choice_method, policy) = \
-            service_group_lb_method(lb_algorithm, None)
+            service_group_lb_method(lb_algorithm, sp_type)
         cmd = None
 
         if first_choice_method:
@@ -98,14 +98,14 @@ class ADCDevice(object):
 
         cmd = None
         if policy == 'Default':
-            cmd = "slb policy default %s %s" % \
-                (vs_name, group_name)
+            cmd = "slb policy default %s %s" % (vs_name, group_name)
         elif policy == 'PC':
-            #FIXME: Make sure the default value
-            cmd = "slb policy persistent cookie %s %s %s %s 100" % \
+            cmd = "slb policy default %s %s; " % (vs_name, group_name)
+            cmd += "slb policy persistent cookie %s %s %s %s 100" % \
                 (vs_name, vs_name, group_name, cookie_name)
         elif policy == 'IC':
-            cmd = "slb policy icookie %s %s %s" % (vs_name, vs_name, group_name)
+            cmd = "slb policy default %s %s; " % (vs_name, group_name)
+            cmd += "slb policy icookie %s %s %s 100" % (vs_name, vs_name, group_name)
         return cmd
 
     @staticmethod
@@ -117,7 +117,8 @@ class ADCDevice(object):
         elif policy == 'PC':
             cmd = "no slb policy persistent cookie %s" % vs_name
         elif policy == 'IC':
-            cmd = "no slb policy icookie %s" % vs_name
+            cmd = "no slb policy default %s; " % vs_name
+            cmd += "no slb policy icookie %s" % vs_name
         return cmd
 
     @staticmethod
@@ -162,12 +163,12 @@ class ADCDevice(object):
             hm_type = 'ICMP'
         cmd = None
         if hm_type == 'HTTP' or hm_type == 'HTTPS':
-            cmd = "slb health %s %s %s %s %s %s %s %s %s" % (hm_name, hm_type.lower(), \
-                    str(hm_delay), str(hm_max_retries), str(hm_max_retries), str(hm_timeout), \
+            cmd = "slb health %s %s %s %s 2 %s %s %s $$%s$$" % (hm_name, hm_type.lower(), \
+                    str(hm_delay), str(hm_timeout), str(hm_max_retries), \
                     hm_http_method, hm_url, str(hm_expected_codes))
         else:
-            cmd = "slb health %s %s %s %s %s %s" % (hm_name, hm_type.lower(), \
-                    str(hm_delay), str(hm_max_retries), str(hm_max_retries), str(hm_timeout))
+            cmd = "slb health %s %s %s %s 2 %s" % (hm_name, hm_type.lower(), \
+                    str(hm_delay), str(hm_timeout), str(hm_max_retries))
         return cmd
 
     @staticmethod
@@ -215,3 +216,7 @@ class ADCDevice(object):
         cmd = "cluster virtual off 100 %s" % (interface_name)
         return cmd
 
+    @staticmethod
+    def write_memory():
+        cmd = "write memory"
+        return cmd

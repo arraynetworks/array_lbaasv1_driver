@@ -24,10 +24,10 @@ def service_group_lb_method(method, session_persistence=None):
         (lb_const.SESSION_PERSISTENCE_APP_COOKIE, lb_const.LB_METHOD_LEAST_CONNECTIONS): ('HC', 'lc', 'PC'),
         (lb_const.SESSION_PERSISTENCE_SOURCE_IP, lb_const.LB_METHOD_ROUND_ROBIN): ('PI', 'rr', 'Default'),
         (lb_const.SESSION_PERSISTENCE_SOURCE_IP, lb_const.LB_METHOD_LEAST_CONNECTIONS): ('PI', 'lc', 'Default'),
-        (None, lb_const.LB_METHOD_SOURCE_IP): ('HI', None, 'Default'),
-        (lb_const.SESSION_PERSISTENCE_HTTP_COOKIE, lb_const.LB_METHOD_SOURCE_IP): ('HI', None, 'Default'),
-        (lb_const.SESSION_PERSISTENCE_APP_COOKIE, lb_const.LB_METHOD_SOURCE_IP): ('HI', None, 'Default'),
-        (lb_const.SESSION_PERSISTENCE_SOURCE_IP, lb_const.LB_METHOD_SOURCE_IP): ('HI', None, 'Default'),
+        #TODO: discussion SOURCE_IP's policy
+        (lb_const.SESSION_PERSISTENCE_HTTP_COOKIE, lb_const.LB_METHOD_SOURCE_IP): ('IC', None, 'IC'),
+        (lb_const.SESSION_PERSISTENCE_APP_COOKIE, lb_const.LB_METHOD_SOURCE_IP): ('HC', None, 'PC'),
+        (lb_const.SESSION_PERSISTENCE_SOURCE_IP, lb_const.LB_METHOD_SOURCE_IP): ('PI', None, 'Default'),
     }
 
     return lb_methods.get((session_persistence, method), 'rr')

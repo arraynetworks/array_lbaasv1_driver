@@ -127,7 +127,7 @@ class ADCDevice(object):
                            member_port,
                            protocol
                           ):
-        cmd = "slb real %s %s %s %s 1000 none" % (protocol, member_name,\
+        cmd = "slb real %s %s %s %s 65535 none" % (protocol, member_name,\
                 member_address, member_port)
         return cmd
 

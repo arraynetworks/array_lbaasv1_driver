@@ -78,7 +78,10 @@ class ADCDevice(object):
             elif algorithm == 'IC':
                 cmd = "slb group method %s ic array 0 %s" % (name, first_choice_method)
         else:
-            cmd = "slb group method %s %s" % (name, algorithm.lower())
+            if algorithm == 'IC':
+                cmd = "slb group method %s ic array" % (name)
+            else:
+                cmd = "slb group method %s %s" % (name, algorithm.lower())
         return cmd
 
     @staticmethod
@@ -101,7 +104,7 @@ class ADCDevice(object):
             cmd = "slb policy default %s %s" % (vs_name, group_name)
         elif policy == 'PC':
             cmd = "slb policy default %s %s; " % (vs_name, group_name)
-            cmd += "slb policy persistent cookie %s %s %s %s 100" % \
+            cmd += "slb policy persistent cookie %s %s %s $$%s$$ 100" % \
                 (vs_name, vs_name, group_name, cookie_name)
         elif policy == 'IC':
             cmd = "slb policy default %s %s; " % (vs_name, group_name)
@@ -163,7 +166,7 @@ class ADCDevice(object):
             hm_type = 'ICMP'
         cmd = None
         if hm_type == 'HTTP' or hm_type == 'HTTPS':
-            cmd = "slb health %s %s %s %s 2 %s %s %s $$%s$$" % (hm_name, hm_type.lower(), \
+            cmd = "slb health %s %s %s %s 2 %s %s $$%s$$ $$%s$$" % (hm_name, hm_type.lower(), \
                     str(hm_delay), str(hm_timeout), str(hm_max_retries), \
                     hm_http_method, hm_url, str(hm_expected_codes))
         else:
